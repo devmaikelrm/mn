@@ -74,6 +74,11 @@ export class TelegramBotService {
         this.handleCommand(msg, () => this.handleUnknown(msg));
       }
     });
+
+    // Handle callback queries (button presses)
+    this.bot.on('callback_query', (query: any) => {
+      this.handleCallbackQuery(query);
+    });
   }
 
   private async handleCommand(msg: TelegramBot.Message, handler: () => Promise<void>): Promise<void> {
@@ -100,31 +105,47 @@ export class TelegramBotService {
     const helpText = `
 🤖 *AT&T Device Unlock Bot*
 
+¡Bienvenido! Utiliza los botones de abajo para una experiencia más fácil, o escribe los comandos directamente.
+
 *Comandos disponibles:*
 
-/solicitar - Enviar nueva solicitud de desbloqueo
-Formatos válidos:
-• \`IMEI, Nombre Apellido, correo@email.com\`
-• \`NUMERO_ATT, IMEI, Nombre Apellido, correo@email.com\`
+📱 */solicitar* - Nueva solicitud de desbloqueo
+📊 */status* - Consultar estado de solicitud
+❓ */help* - Mostrar esta ayuda
 
-/status - Consultar estado de solicitud
-Formato: \`IMEI, REQUEST_ID\`
+*Formatos de comandos:*
+• \`/solicitar IMEI, Nombre Apellido, correo@email.com\`
+• \`/solicitar NUMERO_ATT, IMEI, Nombre Apellido, correo@email.com\`
+• \`/status IMEI, REQUEST_ID\`
 
-*Ejemplos:*
-\`/solicitar 353012345678901, Juan Pérez, juan@email.com\`
-\`/solicitar 1234567890, 353012345678901, María García, maria@email.com\`
-\`/status 353012345678901, NUL117557332822\`
-
-*Información importante:*
-• Solo el propietario autorizado puede usar este bot
-• El proceso puede tomar hasta 24 horas
+⚠️ *Información importante:*
+• Proceso puede tomar hasta 24 horas
 • Si aparece CAPTCHA, se requerirá intervención manual
 • Los datos no se almacenan permanentemente
 
-*Disclaimer:* Este bot automatiza la navegación del portal oficial de AT&T. La decisión final de desbloqueo es únicamente de AT&T. Use bajo su responsabilidad y cumpliendo los términos de servicio.
+*Disclaimer:* Este bot automatiza el portal oficial de AT&T. La decisión final es únicamente de AT&T.
     `;
 
-    await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' });
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📱 Nueva Solicitud', callback_data: 'help_solicitar' },
+          { text: '📊 Consultar Estado', callback_data: 'help_status' }
+        ],
+        [
+          { text: '📋 Ver Ejemplos', callback_data: 'show_examples' },
+          { text: '❓ Ayuda Completa', callback_data: 'show_help' }
+        ],
+        [
+          { text: '🌐 Portal AT&T', url: 'https://www.att.com/deviceunlock' }
+        ]
+      ]
+    };
+
+    await this.bot.sendMessage(chatId, helpText, { 
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
   }
 
   private async handleSolicitar(msg: TelegramBot.Message, args: string): Promise<void> {
@@ -164,18 +185,63 @@ Formato: \`IMEI, REQUEST_ID\`
         responseText += `⏰ *Vencimiento aproximado:* ${new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleString('es-MX')}\n\n`;
         responseText += '📬 Revisa tu correo electrónico para recibir actualizaciones de AT&T.';
         
-        await this.bot.sendMessage(chatId, responseText, { parse_mode: 'Markdown' });
+        const successKeyboard = {
+          inline_keyboard: [
+            [
+              { text: '📊 Consultar Estado', callback_data: `check_status_${result.requestId}` },
+              { text: '📱 Nueva Solicitud', callback_data: 'help_solicitar' }
+            ],
+            [
+              { text: '🔄 Volver al Menú', callback_data: 'show_help' }
+            ]
+          ]
+        };
+        
+        await this.bot.sendMessage(chatId, responseText, { 
+          parse_mode: 'Markdown',
+          reply_markup: successKeyboard
+        });
       } else if (result.captchaDetected) {
+        const captchaKeyboard = {
+          inline_keyboard: [
+            [
+              { text: '🔄 Intentar de Nuevo', callback_data: 'help_solicitar' },
+              { text: '🌐 Portal AT&T', url: 'https://www.att.com/deviceunlock' }
+            ],
+            [
+              { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+            ]
+          ]
+        };
+        
         await this.bot.sendMessage(chatId, 
           '🔐 *CAPTCHA Detectado*\n\n' +
           'Se detectó un CAPTCHA en el portal de AT&T. Es necesaria la intervención manual.\n\n' +
-          'Por favor, intenta nuevamente más tarde o visita directamente el portal de AT&T.',
-          { parse_mode: 'Markdown' }
+          'Puedes intentar nuevamente más tarde o visitar directamente el portal de AT&T.',
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: captchaKeyboard
+          }
         );
       } else {
+        const errorKeyboard = {
+          inline_keyboard: [
+            [
+              { text: '🔄 Intentar de Nuevo', callback_data: 'help_solicitar' },
+              { text: '📋 Ver Ejemplos', callback_data: 'show_examples' }
+            ],
+            [
+              { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+            ]
+          ]
+        };
+        
         await this.bot.sendMessage(chatId, 
           `❌ *Error en la solicitud*\n\n${result.errorMessage || 'Error desconocido'}`,
-          { parse_mode: 'Markdown' }
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: errorKeyboard
+          }
         );
       }
 
@@ -183,13 +249,28 @@ Formato: \`IMEI, REQUEST_ID\`
       if (error.issues) {
         // Validation error
         const errorMessages = error.issues.map((issue: any) => `• ${issue.message}`).join('\n');
+        const validationKeyboard = {
+          inline_keyboard: [
+            [
+              { text: '📋 Ver Ejemplos', callback_data: 'show_examples' },
+              { text: '❓ Ayuda', callback_data: 'help_solicitar' }
+            ],
+            [
+              { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+            ]
+          ]
+        };
+        
         await this.bot.sendMessage(chatId, 
           `❌ *Error de validación:*\n\n${errorMessages}\n\n` +
           'Use el formato correcto:\n' +
           '`/solicitar IMEI, Nombre Apellido, correo@email.com`\n' +
           'o\n' +
           '`/solicitar NUMERO_ATT, IMEI, Nombre Apellido, correo@email.com`',
-          { parse_mode: 'Markdown' }
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: validationKeyboard
+          }
         );
       } else {
         await this.bot.sendMessage(chatId, `❌ Error: ${error.message}`);
@@ -247,21 +328,66 @@ Formato: \`IMEI, REQUEST_ID\`
           responseText += `📝 *Detalles:*\n${result.details}`;
         }
 
-        await this.bot.sendMessage(chatId, responseText, { parse_mode: 'Markdown' });
+        const statusKeyboard = {
+          inline_keyboard: [
+            [
+              { text: '🔄 Actualizar Estado', callback_data: `refresh_status_${validated.imei}_${validated.requestId}` },
+              { text: '📱 Nueva Solicitud', callback_data: 'help_solicitar' }
+            ],
+            [
+              { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+            ]
+          ]
+        };
+
+        await this.bot.sendMessage(chatId, responseText, { 
+          parse_mode: 'Markdown',
+          reply_markup: statusKeyboard
+        });
       } else {
+        const statusErrorKeyboard = {
+          inline_keyboard: [
+            [
+              { text: '🔄 Intentar de Nuevo', callback_data: 'help_status' },
+              { text: '📋 Ver Ejemplos', callback_data: 'show_examples' }
+            ],
+            [
+              { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+            ]
+          ]
+        };
+        
         await this.bot.sendMessage(chatId, 
           `❌ *Error al consultar estado*\n\n${result.errorMessage || 'Error desconocido'}`,
-          { parse_mode: 'Markdown' }
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: statusErrorKeyboard
+          }
         );
       }
 
     } catch (error: any) {
       if (error.issues) {
         const errorMessages = error.issues.map((issue: any) => `• ${issue.message}`).join('\n');
+        const statusValidationKeyboard = {
+          inline_keyboard: [
+            [
+              { text: '📋 Ver Ejemplos', callback_data: 'show_examples' },
+              { text: '❓ Ayuda', callback_data: 'help_status' }
+            ],
+            [
+              { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+            ]
+          ]
+        };
+        
         await this.bot.sendMessage(chatId, 
           `❌ *Error de validación:*\n\n${errorMessages}\n\n` +
           'Use el formato correcto:\n`/status IMEI, REQUEST_ID`',
-          { parse_mode: 'Markdown' }
+          { 
+            parse_mode: 'Markdown',
+            reply_markup: statusValidationKeyboard
+          }
         );
       } else {
         await this.bot.sendMessage(chatId, `❌ Error: ${error.message}`);
@@ -271,8 +397,22 @@ Formato: \`IMEI, REQUEST_ID\`
 
   private async handleUnknown(msg: TelegramBot.Message): Promise<void> {
     const chatId = msg.chat.id;
+    
+    const unknownKeyboard = {
+      inline_keyboard: [
+        [
+          { text: '📱 Nueva Solicitud', callback_data: 'help_solicitar' },
+          { text: '📊 Consultar Estado', callback_data: 'help_status' }
+        ],
+        [
+          { text: '❓ Ver Ayuda', callback_data: 'show_help' }
+        ]
+      ]
+    };
+    
     await this.bot.sendMessage(chatId, 
-      '❓ Comando no reconocido. Use /start para ver los comandos disponibles.'
+      '❓ Comando no reconocido. Usa los botones de abajo o /start para ver los comandos disponibles.',
+      { reply_markup: unknownKeyboard }
     );
   }
 
@@ -312,6 +452,172 @@ Formato: \`IMEI, REQUEST_ID\`
       imei: parts[0],
       requestId: parts[1],
     };
+  }
+
+  private async handleCallbackQuery(query: any): Promise<void> {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+
+    // Answer the callback query to stop loading indicator
+    await this.bot.answerCallbackQuery(query.id);
+
+    try {
+      switch (data) {
+        case 'help_solicitar':
+          await this.showSolicitarHelp(chatId);
+          break;
+        case 'help_status':
+          await this.showStatusHelp(chatId);
+          break;
+        case 'show_examples':
+          await this.showExamples(chatId);
+          break;
+        case 'show_help':
+          // Create a fake message object for handleStart
+          const fakeMsg = { chat: { id: chatId } } as TelegramBot.Message;
+          await this.handleStart(fakeMsg);
+          break;
+        default:
+          if (data.startsWith('check_status_') || data.startsWith('refresh_status_')) {
+            await this.handleQuickStatus(chatId, data);
+          }
+          break;
+      }
+    } catch (error: any) {
+      logger.error(`Callback query error: ${error.message}`);
+      await this.bot.sendMessage(chatId, '❌ Error procesando la acción. Intenta nuevamente.');
+    }
+  }
+
+  private async showSolicitarHelp(chatId: number): Promise<void> {
+    const helpText = `
+📱 *Cómo enviar una solicitud*
+
+Usa el comando */solicitar* seguido de los datos separados por comas:
+
+*Formato 1:* IMEI, Nombre Apellido, correo@email.com
+*Formato 2:* NUMERO_ATT, IMEI, Nombre Apellido, correo@email.com
+
+*Importante:*
+• IMEI debe tener 15 dígitos
+• Número AT&T debe tener 10 dígitos (si lo proporcionas)
+• Email debe ser válido
+• Separar cada campo con coma y espacio
+
+¿Necesitas más ayuda?`;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📋 Ver Ejemplos', callback_data: 'show_examples' },
+          { text: '📊 Consultar Estado', callback_data: 'help_status' }
+        ],
+        [
+          { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+        ]
+      ]
+    };
+
+    await this.bot.sendMessage(chatId, helpText, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  }
+
+  private async showStatusHelp(chatId: number): Promise<void> {
+    const helpText = `
+📊 *Cómo consultar el estado*
+
+Usa el comando */status* seguido de los datos separados por comas:
+
+*Formato:* IMEI, REQUEST_ID
+
+*Importante:*
+• IMEI debe tener 15 dígitos
+• REQUEST_ID es el código que recibiste al crear la solicitud
+• Separar con coma y espacio
+
+El bot consultará automáticamente el portal de AT&T para obtener el estado actual.`;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📋 Ver Ejemplos', callback_data: 'show_examples' },
+          { text: '📱 Nueva Solicitud', callback_data: 'help_solicitar' }
+        ],
+        [
+          { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+        ]
+      ]
+    };
+
+    await this.bot.sendMessage(chatId, helpText, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  }
+
+  private async showExamples(chatId: number): Promise<void> {
+    const helpText = `
+📋 *Ejemplos de uso*
+
+*Para enviar solicitud (sin número AT&T):*
+\`/solicitar 353012345678901, Juan Pérez, juan@email.com\`
+
+*Para enviar solicitud (con número AT&T):*
+\`/solicitar 1234567890, 353012345678901, María García, maria@email.com\`
+
+*Para consultar estado:*
+\`/status 353012345678901, NUL117557332822\`
+
+*Notas importantes:*
+• Respeta las comas y espacios exactamente como se muestra
+• El IMEI siempre tiene 15 dígitos
+• El número AT&T tiene 10 dígitos (opcional)
+• El REQUEST_ID lo recibes al crear la solicitud`;
+
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📱 Nueva Solicitud', callback_data: 'help_solicitar' },
+          { text: '📊 Consultar Estado', callback_data: 'help_status' }
+        ],
+        [
+          { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+        ]
+      ]
+    };
+
+    await this.bot.sendMessage(chatId, helpText, {
+      parse_mode: 'Markdown',
+      reply_markup: keyboard
+    });
+  }
+
+  private async handleQuickStatus(chatId: number, data: string): Promise<void> {
+    const keyboard = {
+      inline_keyboard: [
+        [
+          { text: '📋 Ver Ejemplos', callback_data: 'show_examples' },
+          { text: '❓ Ayuda Status', callback_data: 'help_status' }
+        ],
+        [
+          { text: '🏠 Volver al Menú', callback_data: 'show_help' }
+        ]
+      ]
+    };
+
+    await this.bot.sendMessage(chatId, 
+      '📊 *Consulta rápida de estado*\n\n' +
+      'Para consultar el estado, usa:\n' +
+      '`/status IMEI, REQUEST_ID`\n\n' +
+      'Ejemplo:\n' +
+      '`/status 353012345678901, NUL117557332822`', 
+      {
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
+      }
+    );
   }
 }
 
