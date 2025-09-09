@@ -1,0 +1,198 @@
+Objetivo general
+Construir una aplicación “bot + automatización” para enviar, confirmar y monitorear solicitudes de desbloqueo de dispositivos AT&T. El bot corre en Telegram y automatiza el flujo web del portal oficial, reenvía correos clave y permite consultar el estado de una solicitud. La solución debe funcionar en plan gratuito y tolerar que el servicio pueda dormirse cuando no hay tráfico.
+
+Restricciones y lineamientos
+
+Usar Replit como entorno principal. Debe poder correr Node.js con navegador sin cabeza (Chromium/Playwright o equivalente).
+
+Sin exponer secretos en el repo. Variables por entorno (.env o gestor de secretos de Replit).
+
+Solo un usuario dueño (propietario/OWNER_ID) puede usar el bot. Si otros escriben, responde “bot privado”.
+
+Manejo explícito de CAPTCHA: si aparece en AT&T, notificar en Telegram que se requiere intervención manual; no intentar romper ni eludir CAPTCHA.
+
+Gratuito: evitar servicios pagos. El correo se reenvía con Google Apps Script externo (configurable por el usuario), no con un servidor dedicado.
+
+Preparar scripts de prueba y logs legibles para depurar selectores si cambia el HTML de AT&T.
+
+Componentes de la solución
+
+Bot de Telegram (Replit, Node.js)
+
+Modo webhook o long polling (elige lo más estable en Replit; si usas webhook, documenta cómo obtener URL pública).
+
+Comandos mínimos:
+
+/start → ayuda y formato de uso.
+
+/solicitar → acepta datos y dispara la automatización web. Formatos válidos:
+
+IMEI, Nombre Apellido, correo@x.com
+
+NUMERO_AT&T(10 dígitos), IMEI, Nombre Apellido, correo@x.com
+
+/status IMEI, REQUEST_ID → consulta el estado en la página oficial y devuelve resultado.
+
+Validación de entradas (número de 10 dígitos, IMEI con longitud estándar, email, nombre).
+
+Respuestas claras y amigables (éxito, error, captcha, validación).
+
+Automatización web (Replit, headless browser)
+
+Abrir https://www.att.com/deviceunlock/unlockstep1.
+
+Paso 1/3 “Do you have a mobile number from AT&T?”:
+
+No → ruta sin número (nonattunlock).
+
+Sí (si se proporcionó número válido) → ruta con número.
+
+IMEI: completar.
+
+Make/Model: seleccionar automáticamente la primera opción válida disponible (sea Samsung u otra), soportando <select> y combobox estilizados.
+
+Aceptar términos (checkbox/botón/modal).
+
+Paso 2/3 “Verify your details”:
+
+First name / Last name (si solo se pasa “name”, dividir inteligentemente en first/last).
+
+Mobile number (solo si venía en la ruta con número o si la UI lo exige).
+
+Email + Confirm email.
+
+Paso 3/3 “Confirmation”: extraer el Request ID (p. ej. NUL117557332822), detectar texto de confirmación (“Thanks! We got your request. … 24 hours …”).
+
+Devolver al bot: ok, captcha (boolean), requestId, deadlineISO (+24h desde “ahora”).
+
+Tolerante a cambios: usar selectores por label/role, fallbacks por placeholder/name, y detección básica de CAPTCHA.
+
+Errores de validación: capturar y devolver mensaje resumido.
+
+Consulta de estado (Replit, headless browser)
+
+Abrir https://www.att.com/deviceunlock/status.
+
+Rellenar IMEI y Request/Case number.
+
+Enviar y capturar bloque de resultado visible.
+
+Clasificar status en: approved, denied, pending o unknown (regex sobre el texto).
+
+Devolver detalles recortados.
+
+Reenvío de correos (Apps Script, externo a Replit)
+
+Proveer instrucciones (sin código ejecutable aquí) para que el usuario cree un Google Apps Script que:
+
+Busque emails de att.com con asuntos unlock | request | confirm | status | decision.
+
+Extraiga el primer enlace de confirmación y el Request ID si están presentes.
+
+Envíe a Telegram (al chat del OWNER_ID) con botones: Confirmar solicitud y Ver estado.
+
+Trigger cada 1–5 min.
+
+No implementar el Apps Script en Replit; solo documentarlo en el README que generes.
+
+Variables de entorno (defínelas en Replit, no en el repo)
+
+BOT_TOKEN (Telegram).
+
+OWNER_ID (chat ID numérico del dueño).
+
+Opcionales/futuras: TZ (zona horaria), toggles de debug, etc.
+
+Experiencia de usuario (UX de chat)
+
+Mensajes cortos, claros y con emojis mínimos.
+
+Tras /solicitar exitoso:
+
+Confirmar envío, mostrar Request ID si se obtuvo, indicar vencimiento 24 h aproximado.
+
+Recordar al usuario que revise su correo (o que use el botón del Apps Script).
+
+Si aparece CAPTCHA: mensaje que requiere intervención manual (no prometer bypass).
+
+/status: eco de parámetros usados, y resumen del estado detectado.
+
+Seguridad y privacidad
+
+No persistir IMEI ni correos por defecto; si guardas algo (e.g., para comodidad), que sea temporal y opcional.
+
+Filtrar acceso: solo OWNER_ID.
+
+Logging: no imprimir secretos ni datos sensibles en claro.
+
+Incluir disclaimer: la app automatiza navegación; la decisión de AT&T es la única válida; cumplir Términos del sitio; no abuso.
+
+Operación en plan gratis
+
+Replit puede dormirse: avisar que el primer mensaje puede demorar; luego el bot responde normal.
+
+Proveer sección “Cómo mantener activo” (por ejemplo, pings opcionales si el usuario los configura) sin depender de servicios pagos.
+
+Documentar límites y cómo reintentar cuando la sesión de navegador caduque.
+
+Estructura de proyecto recomendada (sin código, solo nombres)
+
+README.md (paso a paso de configuración, env vars, pruebas, Apps Script, troubleshooting).
+
+src/bot/ (módulo del bot: comandos, validaciones, formateo de respuestas).
+
+src/flows/submit/ (orquestación del flujo de envío).
+
+src/flows/status/ (orquestación del flujo de estado).
+
+src/lib/browser/ (helper para lanzar navegador, timeout, manejo de selectores).
+
+src/lib/parsers/ (parseo de Request ID, resultados de estado, mensajes de error).
+
+src/lib/logging/ (logger con niveles).
+
+src/config/ (lectura de env, constantes).
+
+scripts/ (utilidades de prueba manual, sin secretos).
+
+Criterios de aceptación
+
+✅ /start muestra ayuda y limita acceso al OWNER_ID.
+
+✅ /solicitar con formato válido ejecuta el flujo, maneja Make/Model automáticamente, acepta términos, finaliza en confirmación, y devuelve requestId cuando sea visible.
+
+✅ Si aparece CAPTCHA durante el flujo, el bot lo detecta y notifica correctamente.
+
+✅ /status IMEI, REQUEST_ID devuelve status + detalles legibles.
+
+✅ README explica claramente cómo crear el Apps Script para reenviar correos con botón Confirmar solicitud y Ver estado.
+
+✅ No se exponen secretos en el repo; todo va en variables de Replit.
+
+✅ Logs suficientes para depurar cuando cambien los selectores.
+
+Pruebas/manual de uso
+
+Caso “sin número” (solo IMEI) → éxito.
+
+Caso “con número” (10 dígitos) → éxito.
+
+Caso con validación de formulario (faltan campos) → devuelve error claro.
+
+Caso con CAPTCHA → notifica y termina sin colgarse.
+
+/status con valores reales → entrega un texto coherente (pending/approved/denied/unknown).
+
+Apps Script (externo): al recibir email con link, llega botón “Confirmar solicitud” al Telegram.
+
+Entregables finales
+
+Proyecto en Replit configurado (sin código sensible).
+
+README completo con:
+
+Configuración de variables, pasos de prueba, límites del plan gratis, y guía del Apps Script.
+
+Tabla de comandos del bot y ejemplos de uso.
+
+Sección “Troubleshooting” (CAPTCHA, cambios HTML, errores comunes).
