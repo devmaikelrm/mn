@@ -137,7 +137,7 @@ export class TelegramBotService {
           { text: '❓ Ayuda Completa', callback_data: 'show_help' }
         ],
         [
-          { text: '🌐 Portal AT&T', url: 'https://www.att.com/deviceunlock' }
+          { text: '🌐 Portal AT&T', url: config.ATT_UNLOCK_URL }
         ]
       ]
     };
@@ -180,7 +180,7 @@ export class TelegramBotService {
           responseText += `📋 *Request ID:* \`${result.requestId}\`\n`;
         }
         
-        responseText += `📱 *IMEI:* \`${validatedRequest.imei.substring(0, 6)}...${validatedRequest.imei.substring(-4)}\`\n`;
+        responseText += `📱 *IMEI:* \`${validatedRequest.imei.substring(0, 6)}...${validatedRequest.imei.slice(-4)}\`\n`;
         responseText += `📧 *Email:* ${validatedRequest.email}\n`;
         responseText += `⏰ *Vencimiento aproximado:* ${new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleString('es-MX')}\n\n`;
         responseText += '📬 Revisa tu correo electrónico para recibir actualizaciones de AT&T.';
@@ -206,7 +206,7 @@ export class TelegramBotService {
           inline_keyboard: [
             [
               { text: '🔄 Intentar de Nuevo', callback_data: 'help_solicitar' },
-              { text: '🌐 Portal AT&T', url: 'https://www.att.com/deviceunlock' }
+              { text: '🌐 Portal AT&T', url: config.ATT_UNLOCK_URL }
             ],
             [
               { text: '🏠 Volver al Menú', callback_data: 'show_help' }
@@ -320,7 +320,7 @@ export class TelegramBotService {
         }[result.status] || 'Desconocido';
 
         let responseText = `${statusEmoji} *Estado de la solicitud*\n\n`;
-        responseText += `📱 *IMEI:* \`${validated.imei.substring(0, 6)}...${validated.imei.substring(-4)}\`\n`;
+        responseText += `📱 *IMEI:* \`${validated.imei.substring(0, 6)}...${validated.imei.slice(-4)}\`\n`;
         responseText += `📋 *Request ID:* \`${validated.requestId}\`\n`;
         responseText += `📊 *Estado:* ${statusText}\n\n`;
         
