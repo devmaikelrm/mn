@@ -1,8 +1,9 @@
-import { Page } from 'playwright';
 import { browserAutomation } from './browser-automation';
 import { createLogger } from './logger';
 import { config } from '../config';
 import { type InsertUnlockRequest } from '@shared/schema';
+
+type PlaywrightPage = Awaited<ReturnType<typeof browserAutomation.createPage>>;
 
 const logger = createLogger('att-flow');
 
@@ -16,16 +17,37 @@ export interface SubmissionResult {
 
 export class ATTFlow {
   async submitUnlockRequest(request: InsertUnlockRequest): Promise<SubmissionResult> {
-    let page: Page | null = null;
+    let page: PlaywrightPage | null = null;
     
     try {
       logger.info('Starting AT&T unlock request submission', undefined, request);
       
       page = await browserAutomation.createPage();
       
-      // Navigate to AT&T unlock page
-      await page.goto(config.ATT_UNLOCK_URL);
+      // Navigate to AT&T unlock page (force short-flow entry)
+      await page.goto(config.ATT_UNLOCK_URL, { waitUntil: 'networkidle' });
       await browserAutomation.takeScreenshot(page, 'step1-loaded');
+      
+      // Ensure we actually landed on the short flow (/unlockstep1). The portal may redirect to the general landing page.
+      try {
+        let currentUrl = page.url();
+        if (!currentUrl.includes('/unlockstep1')) {
+          // Try direct navigation again
+          await page.goto(config.ATT_UNLOCK_URL, { waitUntil: 'networkidle' });
+          await page.waitForTimeout(1000);
+          currentUrl = page.url();
+        }
+        
+        if (!currentUrl.includes('/unlockstep1')) {
+          // Fallback: force client-side navigation to bypass interstitials
+          await page.evaluate((u: string) => { window.location.href = u; }, config.ATT_UNLOCK_URL);
+          await page.waitForLoadState('networkidle');
+        }
+        
+        await browserAutomation.takeScreenshot(page, 'step1-forced');
+      } catch (err: any) {
+        logger.warn(`Failed to force unlockstep1 entry: ${err?.message || String(err)}`);
+      }
       
       // Check for CAPTCHA early
       const captchaDetected = await browserAutomation.detectCaptcha(page);
@@ -75,7 +97,7 @@ export class ATTFlow {
     }
   }
 
-  private async selectPath(page: Page, hasAttNumber: boolean): Promise<void> {
+  private async selectPath(page: PlaywrightPage, hasAttNumber: boolean): Promise<void> {
     logger.info(`Selecting path: ${hasAttNumber ? 'with' : 'without'} AT&T number`);
     
     // Look for radio buttons or buttons to select path
@@ -110,7 +132,7 @@ export class ATTFlow {
     await browserAutomation.takeScreenshot(page, 'step1-path-selected');
   }
 
-  private async fillDeviceInfo(page: Page, request: InsertUnlockRequest): Promise<void> {
+  private async fillDeviceInfo(page: PlaywrightPage, request: InsertUnlockRequest): Promise<void> {
     logger.info('Filling device information');
     
     // Fill IMEI
@@ -151,7 +173,7 @@ export class ATTFlow {
     await browserAutomation.takeScreenshot(page, 'step2-device-info');
   }
 
-  private async selectMakeModel(page: Page): Promise<void> {
+  private async selectMakeModel(page: PlaywrightPage): Promise<void> {
     const makeModelSelectors = [
       'select[name*="make"]',
       'select[name*="model"]',
@@ -168,11 +190,14 @@ export class ATTFlow {
     
     try {
       // Get all options and select the first non-empty one
-      const options = await page.$$eval(`${selector} option`, options => 
-        options.map(option => ({ value: (option as HTMLOptionElement).value, text: option.textContent }))
+      const options = await page.$$eval(`${selector} option`, (options: Element[]) =>
+        options.map(opt => {
+          const option = opt as HTMLOptionElement;
+          return { value: option.value, text: option.textContent || '' };
+        })
       );
       
-      const validOption = options.find(opt => opt.value && opt.value !== '' && opt.text && !opt.text.includes('Select'));
+      const validOption = options.find((opt: { value: string; text: string }) => opt.value && opt.value !== '' && opt.text && !opt.text.includes('Select'));
       
       if (validOption) {
         await page.selectOption(selector, validOption.value);
@@ -185,7 +210,7 @@ export class ATTFlow {
     }
   }
 
-  private async fillPersonalInfo(page: Page, request: InsertUnlockRequest): Promise<void> {
+  private async fillPersonalInfo(page: PlaywrightPage, request: InsertUnlockRequest): Promise<void> {
     logger.info('Filling personal information');
     
     // First Name
@@ -239,7 +264,7 @@ export class ATTFlow {
     await browserAutomation.takeScreenshot(page, 'step3-personal-info');
   }
 
-  private async acceptTermsAndSubmit(page: Page): Promise<void> {
+  private async acceptTermsAndSubmit(page: PlaywrightPage): Promise<void> {
     logger.info('Accepting terms and submitting');
     
     // Look for terms checkbox
@@ -277,7 +302,7 @@ export class ATTFlow {
     await browserAutomation.takeScreenshot(page, 'step4-submitted');
   }
 
-  private async extractConfirmationDetails(page: Page): Promise<SubmissionResult> {
+  private async extractConfirmationDetails(page: PlaywrightPage): Promise<SubmissionResult> {
     logger.info('Extracting confirmation details');
     
     // Look for Request ID

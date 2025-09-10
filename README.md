@@ -1,5 +1,21 @@
 # AT&T Device Unlock Bot
 
+## Adaptation: Force AT&T short-flow entry (/unlockstep1)
+
+The application now forces the AT&T unlock flow to always start at:
+https://www.att.com/deviceunlock/unlockstep1
+
+Changes applied:
+- Created client-side constants: [`client/src/config/att.ts`](client/src/config/att.ts:1) exporting ATT_UNLOCK_URL and ATT_STATUS_URL.
+- Server uses the centralized config value: [`server/config/index.ts`](server/config/index.ts:20).
+- Telegram bot links updated to point to the forced entry: [`server/services/telegram-bot.ts`](server/services/telegram-bot.ts:140).
+- Automation now enforces navigation to the short flow and retries/forces client-side navigation if the portal redirects: [`server/services/att-flow.ts`](server/services/att-flow.ts:26).
+
+If you run into TypeScript errors for missing types (playwright, node-telegram-bot-api), install the dev dependencies:
+- npm i -D @types/node
+- npm i playwright
+- npm i node-telegram-bot-api
+
 Bot automatizado de Telegram para gestionar solicitudes de desbloqueo de dispositivos AT&T con navegador headless y reenvío de correos.
 
 ## 🚀 Características
